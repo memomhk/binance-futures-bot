@@ -13,22 +13,42 @@ class TradeManager:
         self.active_trades = {}
     
     def calculate_position_size(self, balance, risk_percent, entry_price, stop_loss_price):
-        """Calculate position size based on risk management"""
-        risk_amount = balance * (risk_percent / 100)
-        price_difference = abs(entry_price - stop_loss_price)
+        """
+        Calculate position size based on risk management
+        Works with ANY balance (even $1)
+        """
+        try:
+            # Calculate risk amount
+            risk_amount = balance * (risk_percent / 100)
+            price_difference = abs(entry_price - stop_loss_price)
+            
+            if price_difference == 0:
+                return 0
+            
+            # Calculate position size
+            position_size = risk_amount / price_difference
+            
+            # Ensure minimum viable size for Binance
+            # Binance minimum is usually 0.001 or $10 notional
+            min_notional = 10  # $10 minimum
+            notional_value = position_size * entry_price
+            
+            if notional_value < min_notional:
+                # Use minimum if balance is very small
+                position_size = min_notional / entry_price
+            
+            return position_size
         
-        if price_difference == 0:
+        except Exception as e:
+            print(f"Error calculating position size: {e}")
             return 0
-        
-        position_size = risk_amount / price_difference
-        return position_size
     
     def execute_long_trade(self, symbol, entry_price, stop_loss_price):
-        """Execute a LONG (BUY) trade"""
+        """Execute a LONG (BUY) trade - works with any balance"""
         try:
             balance = self.client.get_account_balance()
             
-            # Calculate position size
+            # Calculate position size based on actual balance
             quantity = self.calculate_position_size(
                 balance,
                 config.RISK_PERCENTAGE,
@@ -37,8 +57,12 @@ class TradeManager:
             )
             
             if quantity == 0:
-                print(f"Invalid position size for {symbol}")
+                print(f"⚠️  Position size too small for {symbol}")
                 return False
+            
+            print(f"💰 Account Balance: ${balance:.2f}")
+            print(f"📊 Position Size: {quantity:.8f} {symbol.replace('USDT', '')}")
+            print(f"💵 Position Value: ${quantity * entry_price:.2f}")
             
             # Set leverage
             self.client.set_leverage(symbol, config.LEVERAGE)
@@ -48,43 +72,46 @@ class TradeManager:
                 symbol=symbol,
                 side='BUY',
                 order_type='MARKET',
-                quantity=round(quantity, 2)
+                quantity=round(quantity, 8)
             )
             
             if order:
+                print(f"✅ LONG Trade Opened: {symbol} @ ${entry_price:.2f}")
+                
                 # Place stop loss
                 self.client.place_stop_loss(
                     symbol=symbol,
                     side='BUY',
-                    quantity=round(quantity, 2),
+                    quantity=round(quantity, 8),
                     stop_price=stop_loss_price
                 )
                 
-                # Place take profit orders
+                # Place take profit orders (split into 3 parts)
                 tp1 = entry_price + (entry_price * config.TAKE_PROFIT_1_PERCENT / 100)
                 tp2 = entry_price + (entry_price * config.TAKE_PROFIT_2_PERCENT / 100)
                 tp3 = entry_price + (entry_price * config.TAKE_PROFIT_3_PERCENT / 100)
                 
-                self.client.place_take_profit(symbol, 'BUY', round(quantity / 3, 2), tp1)
-                self.client.place_take_profit(symbol, 'BUY', round(quantity / 3, 2), tp2)
-                self.client.place_take_profit(symbol, 'BUY', round(quantity / 3, 2), tp3)
+                qty_per_tp = round(quantity / 3, 8)
+                
+                self.client.place_take_profit(symbol, 'BUY', qty_per_tp, tp1)
+                self.client.place_take_profit(symbol, 'BUY', qty_per_tp, tp2)
+                self.client.place_take_profit(symbol, 'BUY', qty_per_tp, tp3)
                 
                 self.log_trade('LONG', symbol, entry_price, stop_loss_price, quantity)
-                print(f"✅ LONG Trade Opened: {symbol} @ {entry_price}")
                 return True
             
             return False
         
         except Exception as e:
-            print(f"Error executing LONG trade: {e}")
+            print(f"❌ Error executing LONG trade: {e}")
             return False
     
     def execute_short_trade(self, symbol, entry_price, stop_loss_price):
-        """Execute a SHORT (SELL) trade"""
+        """Execute a SHORT (SELL) trade - works with any balance"""
         try:
             balance = self.client.get_account_balance()
             
-            # Calculate position size
+            # Calculate position size based on actual balance
             quantity = self.calculate_position_size(
                 balance,
                 config.RISK_PERCENTAGE,
@@ -93,8 +120,12 @@ class TradeManager:
             )
             
             if quantity == 0:
-                print(f"Invalid position size for {symbol}")
+                print(f"⚠️  Position size too small for {symbol}")
                 return False
+            
+            print(f"💰 Account Balance: ${balance:.2f}")
+            print(f"📊 Position Size: {quantity:.8f} {symbol.replace('USDT', '')}")
+            print(f"💵 Position Value: ${quantity * entry_price:.2f}")
             
             # Set leverage
             self.client.set_leverage(symbol, config.LEVERAGE)
@@ -104,35 +135,38 @@ class TradeManager:
                 symbol=symbol,
                 side='SELL',
                 order_type='MARKET',
-                quantity=round(quantity, 2)
+                quantity=round(quantity, 8)
             )
             
             if order:
+                print(f"✅ SHORT Trade Opened: {symbol} @ ${entry_price:.2f}")
+                
                 # Place stop loss
                 self.client.place_stop_loss(
                     symbol=symbol,
                     side='SELL',
-                    quantity=round(quantity, 2),
+                    quantity=round(quantity, 8),
                     stop_price=stop_loss_price
                 )
                 
-                # Place take profit orders
+                # Place take profit orders (split into 3 parts)
                 tp1 = entry_price - (entry_price * config.TAKE_PROFIT_1_PERCENT / 100)
                 tp2 = entry_price - (entry_price * config.TAKE_PROFIT_2_PERCENT / 100)
                 tp3 = entry_price - (entry_price * config.TAKE_PROFIT_3_PERCENT / 100)
                 
-                self.client.place_take_profit(symbol, 'SELL', round(quantity / 3, 2), tp1)
-                self.client.place_take_profit(symbol, 'SELL', round(quantity / 3, 2), tp2)
-                self.client.place_take_profit(symbol, 'SELL', round(quantity / 3, 2), tp3)
+                qty_per_tp = round(quantity / 3, 8)
+                
+                self.client.place_take_profit(symbol, 'SELL', qty_per_tp, tp1)
+                self.client.place_take_profit(symbol, 'SELL', qty_per_tp, tp2)
+                self.client.place_take_profit(symbol, 'SELL', qty_per_tp, tp3)
                 
                 self.log_trade('SHORT', symbol, entry_price, stop_loss_price, quantity)
-                print(f"✅ SHORT Trade Opened: {symbol} @ {entry_price}")
                 return True
             
             return False
         
         except Exception as e:
-            print(f"Error executing SHORT trade: {e}")
+            print(f"❌ Error executing SHORT trade: {e}")
             return False
     
     def log_trade(self, trade_type, symbol, entry, stop_loss, quantity):
@@ -144,15 +178,18 @@ class TradeManager:
                 'symbol': symbol,
                 'entry_price': entry,
                 'stop_loss': stop_loss,
-                'quantity': quantity
+                'quantity': quantity,
+                'position_value': quantity * entry
             }
             
             with open(self.trades_log, 'a') as f:
                 json.dump(trade_data, f)
                 f.write('\n')
+            
+            print(f"📝 Trade logged to {self.trades_log}")
         
         except Exception as e:
-            print(f"Error logging trade: {e}")
+            print(f"⚠️  Error logging trade: {e}")
     
     def analyze_and_trade(self, symbol):
         """Analyze symbol and execute trade if conditions are met"""
@@ -188,5 +225,5 @@ class TradeManager:
             return False
         
         except Exception as e:
-            print(f"Error analyzing {symbol}: {e}")
+            print(f"❌ Error analyzing {symbol}: {e}")
             return False
